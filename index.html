@@ -55,6 +55,7 @@
 
     .button:disabled {
       background-color: #cccccc;
+      color: #595959; /* This provides a contrast ratio of approx 4.54:1 with #cccccc */
       cursor: not-allowed;
     }
 
@@ -150,9 +151,9 @@
       <button id="demo-button" class="button">デモ画像を生成</button>
     </div>
 
-    <div id="status-container"></div>
+    <div id="status-container" aria-live="polite"></div>
 
-    <div id="block-size-container"></div>
+    <div id="block-size-container" aria-live="polite"></div>
 
     <div class="image-containers">
       <div class="image-container">
@@ -215,7 +216,7 @@
       }
 
       // 処理中状態を設定する関数
-      function setProcessing(processing) {
+      function setProcessing(processing, keepStatus = false) { // Added keepStatus
         isProcessing = processing;
         convertButton.disabled = processing;
         demoButton.disabled = processing;
@@ -223,8 +224,7 @@
 
         if (processing) {
           showStatus('変換中...', 'processing');
-        } else {
-          // 処理中のステータス表示をクリア
+        } else if (!keepStatus) { // Check keepStatus before clearing
           statusContainer.innerHTML = '';
         }
       }
@@ -254,14 +254,14 @@
             // ブロックサイズをリセット（画像サイズが変わったため再検出が必要）
             estimatedBlockSize = null;
 
-            setProcessing(false);
+            setProcessing(false, true); // Changed to true
           };
           img.src = event.target.result;
         };
 
         reader.onerror = () => {
           showStatus('画像の読み込みに失敗しました。', 'error');
-          setProcessing(false);
+          setProcessing(false, true); // Changed to true
         };
 
         reader.readAsDataURL(file);
@@ -312,25 +312,41 @@
           }
         }
 
-        // 既知のブロックサイズを設定
-        estimatedBlockSize = blockSize;
-        showBlockSize(blockSize);
+        // Create an Image object from the canvas to keep originalImage consistent
+        const demoImg = new Image();
+        demoImg.onload = () => {
+          originalImage = demoImg; // Assign the loaded image
+          
+          // 既知のブロックサイズを設定 (Set known block size)
+          estimatedBlockSize = blockSize; 
+          showBlockSize(blockSize);
+          
+          setProcessing(false, true); // Ensure status isn't cleared if showBlockSize uses it
+        };
+        demoImg.onerror = () => {
+          // Handle potential error in loading image from data URL (optional but good practice)
+          showStatus('デモ画像の内部処理に失敗しました。', 'error');
+          setProcessing(false, true);
+        };
+        demoImg.src = originalCanvas.toDataURL(); // Convert canvas to data URL and load into image
 
-        setProcessing(false);
+        // The old setProcessing(false) and showBlockSize(blockSize) are removed from here
+        // as they are now handled in demoImg.onload.
       }
 
       // ブロックサイズを推定する関数
       function estimateBlockSize(data, width, height) {
-        // 横方向の色の変化を検出
-        const changes = [];
+        if (width === 0 || height === 0) {
+          return 5; // Default block size for zero-dimension images
+        }
         const threshold = 80; // 色の変化の閾値
+        const horizontalChanges = [];
 
-        // サンプル行を複数選択して調査
+        // Horizontal scan
         const sampleRows = [];
-        const numSamples = Math.min(20, height); // 最大20行をサンプルとして使用
-
-        for (let i = 0; i < numSamples; i++) {
-          sampleRows.push(Math.floor(i * height / numSamples));
+        const numSamplesHorizontal = Math.min(20, height);
+        for (let i = 0; i < numSamplesHorizontal; i++) {
+          sampleRows.push(Math.floor(i * height / numSamplesHorizontal));
         }
 
         for (const y of sampleRows) {
@@ -338,44 +354,86 @@
           for (let x = 1; x < width; x++) {
             const idx1 = (y * width + (x - 1)) * 4;
             const idx2 = (y * width + x) * 4;
-
             const colorDiff = Math.sqrt(
               Math.pow(data[idx1] - data[idx2], 2) +
               Math.pow(data[idx1 + 1] - data[idx2 + 1], 2) +
               Math.pow(data[idx1 + 2] - data[idx2 + 2], 2) +
               Math.pow(data[idx1 + 3] - data[idx2 + 3], 2)
             );
-
             if (colorDiff > threshold) {
               rowChanges.push(x);
             }
           }
-
-          // 行内で検出された変化点の間隔を計算
           if (rowChanges.length > 1) {
             for (let i = 1; i < rowChanges.length; i++) {
               const gap = rowChanges[i] - rowChanges[i - 1];
               if (gap > 1) {
-                changes.push(gap);
+                horizontalChanges.push(gap);
               }
             }
           }
         }
 
-        // 最も頻度の高い間隔を検出
-        const gapFrequency = {};
-        let maxFreq = 0;
-        let mostFrequentGap = 0;
+        // Vertical scan
+        const verticalChanges = [];
+        const sampleCols = [];
+        const numSamplesVertical = Math.min(20, width);
+        for (let i = 0; i < numSamplesVertical; i++) {
+          sampleCols.push(Math.floor(i * width / numSamplesVertical));
+        }
 
-        for (const gap of changes) {
-          gapFrequency[gap] = (gapFrequency[gap] || 0) + 1;
-          if (gapFrequency[gap] > maxFreq) {
-            maxFreq = gapFrequency[gap];
-            mostFrequentGap = gap;
+        for (const x of sampleCols) {
+          const colChanges = [];
+          for (let y = 1; y < height; y++) {
+            const idx1 = ((y - 1) * width + x) * 4;
+            const idx2 = (y * width + x) * 4;
+            const colorDiff = Math.sqrt(
+              Math.pow(data[idx1] - data[idx2], 2) +
+              Math.pow(data[idx1 + 1] - data[idx2 + 1], 2) +
+              Math.pow(data[idx1 + 2] - data[idx2 + 2], 2) +
+              Math.pow(data[idx1 + 3] - data[idx2 + 3], 2)
+            );
+            if (colorDiff > threshold) {
+              colChanges.push(y);
+            }
+          }
+          if (colChanges.length > 1) {
+            for (let i = 1; i < colChanges.length; i++) {
+              const gap = colChanges[i] - colChanges[i - 1];
+              if (gap > 1) {
+                verticalChanges.push(gap);
+              }
+            }
           }
         }
 
-        return mostFrequentGap || 5; // デフォルト値として5を返す
+        const allChanges = horizontalChanges.concat(verticalChanges);
+
+        if (allChanges.length === 0) {
+          return 5; // Default if no changes detected
+        }
+
+        // 最も頻度の高い間隔を検出 (タイブレークあり)
+        const gapFrequency = {};
+        for (const gap of allChanges) {
+          gapFrequency[gap] = (gapFrequency[gap] || 0) + 1;
+        }
+
+        let maxFreq = 0;
+        let mostFrequentGap = Infinity; // Initialize with a large number for tie-breaking
+
+        for (const gapStr in gapFrequency) {
+          const gap = Number(gapStr);
+          const freq = gapFrequency[gapStr];
+          if (freq > maxFreq) {
+            maxFreq = freq;
+            mostFrequentGap = gap;
+          } else if (freq === maxFreq) {
+            mostFrequentGap = Math.min(mostFrequentGap, gap);
+          }
+        }
+        
+        return mostFrequentGap === Infinity ? 5 : mostFrequentGap; // Default if no valid gap found
       }
 
       // ブロック内の代表色を決定する関数
@@ -384,59 +442,37 @@
           return { r: 0, g: 0, b: 0, a: 0 };
         }
 
-        // 最頻値を使用
-        const freqR = {};
-        const freqG = {};
-        const freqB = {};
-        const freqA = {};
+        const freqMap = {};
 
-        // 各色成分の出現頻度をカウント
+        // 各ピクセルのRGBAタプルを文字列キーとして頻度をカウント
         for (const pixel of pixels) {
-          freqR[pixel.r] = (freqR[pixel.r] || 0) + 1;
-          freqG[pixel.g] = (freqG[pixel.g] || 0) + 1;
-          freqB[pixel.b] = (freqB[pixel.b] || 0) + 1;
-          freqA[pixel.a] = (freqA[pixel.a] || 0) + 1;
+          const key = `${pixel.r},${pixel.g},${pixel.b},${pixel.a}`;
+          freqMap[key] = (freqMap[key] || 0) + 1;
         }
 
-        // 最も頻度の高い値を取得
-        let maxFreqR = 0, modeR = 0;
-        let maxFreqG = 0, modeG = 0;
-        let maxFreqB = 0, modeB = 0;
-        let maxFreqA = 0, modeA = 0;
+        let mostFrequentKey = '';
+        let maxFreq = 0;
 
-        for (const r in freqR) {
-          if (freqR[r] > maxFreqR) {
-            maxFreqR = freqR[r];
-            modeR = Number(r);
+        // 最も頻度の高いキーを検索（タイブレークあり）
+        for (const key in freqMap) {
+          if (freqMap[key] > maxFreq) {
+            maxFreq = freqMap[key];
+            mostFrequentKey = key;
+          } else if (freqMap[key] === maxFreq) {
+            // 頻度が同じ場合は辞書順で比較
+            if (key < mostFrequentKey) {
+              mostFrequentKey = key;
+            }
           }
         }
 
-        for (const g in freqG) {
-          if (freqG[g] > maxFreqG) {
-            maxFreqG = freqG[g];
-            modeG = Number(g);
-          }
-        }
-
-        for (const b in freqB) {
-          if (freqB[b] > maxFreqB) {
-            maxFreqB = freqB[b];
-            modeB = Number(b);
-          }
-        }
-
-        for (const a in freqA) {
-          if (freqA[a] > maxFreqA) {
-            maxFreqA = freqA[a];
-            modeA = Number(a);
-          }
-        }
-
+        // 最も頻度の高いキーをパースしてRGBAオブジェクトに変換
+        const parts = mostFrequentKey.split(',');
         return {
-          r: modeR,
-          g: modeG,
-          b: modeB,
-          a: modeA
+          r: parseInt(parts[0], 10),
+          g: parseInt(parts[1], 10),
+          b: parseInt(parts[2], 10),
+          a: parseInt(parts[3], 10)
         };
       }
 
@@ -464,8 +500,12 @@
             }
 
             // 出力サイズを計算
-            const outputWidth = Math.floor(originalCanvas.width / blockSize);
-            const outputHeight = Math.floor(originalCanvas.height / blockSize);
+            let outputWidth = Math.floor(originalCanvas.width / blockSize);
+            let outputHeight = Math.floor(originalCanvas.height / blockSize);
+
+            // Ensure output dimensions are at least 1x1
+            outputWidth = Math.max(1, outputWidth);
+            outputHeight = Math.max(1, outputHeight);
 
             // ブロックごとの代表色を計算
             const pixelColors = [];
