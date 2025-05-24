@@ -201,6 +201,7 @@
       const originalCtx = originalCanvas.getContext('2d', { willReadFrequently: true });
       const pixelatedCtx = pixelatedCanvas.getContext('2d', { willReadFrequently: true });
 
+      let isInitialDemoLoad = true;
       let originalImage = null;
       let isProcessing = false;
       let estimatedBlockSize = null;
@@ -223,7 +224,9 @@
         fileInput.disabled = processing;
 
         if (processing) {
-          showStatus('変換中...', 'processing');
+          if (!isInitialDemoLoad) { // Only show "Converting..." if not initial demo load
+            showStatus('変換中...', 'processing');
+          }
         } else if (!keepStatus) { // Check keepStatus before clearing
           statusContainer.innerHTML = '';
         }
@@ -322,6 +325,7 @@
           showBlockSize(blockSize);
           
           setProcessing(false, true); // Ensure status isn't cleared if showBlockSize uses it
+          isInitialDemoLoad = false;
         };
         demoImg.onerror = () => {
           // Handle potential error in loading image from data URL (optional but good practice)
