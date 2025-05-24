@@ -216,13 +216,13 @@
       }
 
       // 処理中状態を設定する関数
-      function setProcessing(processing, keepStatus = false) { // Added keepStatus
+      function setProcessing(processing, showConversionMessage, keepStatus = false) {
         isProcessing = processing;
         convertButton.disabled = processing;
         demoButton.disabled = processing;
         fileInput.disabled = processing;
 
-        if (processing) {
+        if (processing && showConversionMessage) {
           showStatus('変換中...', 'processing');
         } else if (!keepStatus) { // Check keepStatus before clearing
           statusContainer.innerHTML = '';
@@ -235,7 +235,7 @@
         if (!file) return;
 
         statusContainer.innerHTML = '';
-        setProcessing(true);
+        setProcessing(true, false); // showConversionMessage = false
 
         const reader = new FileReader();
 
@@ -254,14 +254,14 @@
             // ブロックサイズをリセット（画像サイズが変わったため再検出が必要）
             estimatedBlockSize = null;
 
-            setProcessing(false, true); // Changed to true
+            setProcessing(false, false, true); // showConversionMessage = false, keepStatus = true
           };
           img.src = event.target.result;
         };
 
         reader.onerror = () => {
           showStatus('画像の読み込みに失敗しました。', 'error');
-          setProcessing(false, true); // Changed to true
+          setProcessing(false, false, true); // showConversionMessage = false, keepStatus = true
         };
 
         reader.readAsDataURL(file);
@@ -270,7 +270,7 @@
       // デモ画像を生成する関数
       function generateDemoImage() {
         statusContainer.innerHTML = '';
-        setProcessing(true);
+        setProcessing(true, false); // showConversionMessage is set to false for demo images
 
         // キャンバスサイズを設定
         const width = 300;
@@ -321,12 +321,12 @@
           estimatedBlockSize = blockSize; 
           showBlockSize(blockSize);
           
-          setProcessing(false, true); // Ensure status isn't cleared if showBlockSize uses it
+          setProcessing(false, false, true); // showConversionMessage = false, keepStatus = true
         };
         demoImg.onerror = () => {
           // Handle potential error in loading image from data URL (optional but good practice)
           showStatus('デモ画像の内部処理に失敗しました。', 'error');
-          setProcessing(false, true);
+          setProcessing(false, false, true); // showConversionMessage = false, keepStatus = true
         };
         demoImg.src = originalCanvas.toDataURL(); // Convert canvas to data URL and load into image
 
@@ -483,7 +483,7 @@
           return;
         }
 
-        setProcessing(true);
+        setProcessing(true, true); // showConversionMessage = true
 
         setTimeout(() => {
           try {
@@ -560,7 +560,7 @@
             console.error('変換エラー:', err);
             showStatus('画像の変換中にエラーが発生しました: ' + (err.message || 'Unknown error'), 'error');
           } finally {
-            setProcessing(false);
+            setProcessing(false, false); // showConversionMessage = false
           }
         }, 100);
       }
